@@ -73,14 +73,16 @@ export class SniWatcher {
 
             this._hasScanned = false;
 
-            const onOwned = () => {
+            const onOwned = (_connection, name) => {
+                if (name === KDE_WATCHER_BUS_NAME)
+                    this._dbusImpl?.emit_signal('StatusNotifierHostRegistered', null);
                 this._scheduleInitialScan();
             };
 
             // DO_NOT_QUEUE routes a second instance to _onWatcherTaken
-            // instead of the bus queue. REPLACE is omitted, it only takes the
-            // name from owners that opted in via ALLOW_REPLACEMENT.
-            const ownFlags = Gio.BusNameOwnerFlags.DO_NOT_QUEUE;
+            // instead of the bus queue. REPLACE allows replacing a temporary
+            // host/watcher (e.g. vicinae) that registered with ALLOW_REPLACEMENT.
+            const ownFlags = Gio.BusNameOwnerFlags.DO_NOT_QUEUE | Gio.BusNameOwnerFlags.REPLACE;
 
             this._kdeWatcherId = Gio.bus_own_name(
                 Gio.BusType.SESSION,
@@ -212,18 +214,26 @@ export class SniWatcher {
 
         if (service.startsWith('/')) {
             objectPath = service;
-        } else if (service.startsWith('org.kde') || service.startsWith('org.freedesktop')) {
-            // Only the bus-name owner may register an item under that name,
-            // otherwise any app could plant an icon for another one.
-            if (sender && !await this._senderOwnsName(sender, service)) {
-                invocation.return_dbus_error(
-                    'org.freedesktop.DBus.Error.AccessDenied',
-                    `Sender does not own ${service}`
-                );
-                return;
+        } else {
+            let busPart = service;
+            if (service.includes('/')) {
+                const slashIndex = service.indexOf('/');
+                busPart = service.slice(0, slashIndex);
+                objectPath = service.slice(slashIndex);
             }
-            busName = sender || service;
-            watchedName = service;
+            if (busPart.startsWith('org.kde') || busPart.startsWith('org.freedesktop')) {
+                // Only the bus-name owner may register an item under that name,
+                // otherwise any app could plant an icon for another one.
+                if (sender && !await this._senderOwnsName(sender, busPart)) {
+                    invocation.return_dbus_error(
+                        'org.freedesktop.DBus.Error.AccessDenied',
+                        `Sender does not own ${busPart}`
+                    );
+                    return;
+                }
+            }
+            busName = sender || busPart;
+            watchedName = busPart;
         }
 
         this._registerItem(busName, objectPath, watchedName);
