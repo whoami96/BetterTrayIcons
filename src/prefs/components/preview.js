@@ -1,10 +1,11 @@
+import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import Adw from 'gi://Adw';
 import GObject from 'gi://GObject';
 import {gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {connectScoped} from '../../shared/lifecycle.js';
+import {connectScoped, watchKeys} from '../../shared/lifecycle.js';
 import {COLOR_VARIANT_KEY} from '../../shared/colorVariant.js';
 import {bindGuideOverlay, createGuideToggle} from './guide.js';
 import {editsLightFor} from './scenes/sceneInk.js';
@@ -67,11 +68,12 @@ const PreviewStage = GObject.registerClass({GTypeName: 'BetterTrayIconsPreviewSt
         }
     });
 
-export function createPreviewGroup({settings, watch, render, splitKey, stageHeight = PREVIEW_STAGE_HEIGHT_PX.panel}) {
+export function createPreviewGroup({settings, watch, render, splitKey, customStyleKey, stageHeight = PREVIEW_STAGE_HEIGHT_PX.panel}) {
     ensurePrefsCss();
     const toggles = new Gtk.Box({spacing: 4});
     toggles.append(createGuideToggle(settings, 'padding', _('Measure the padding while hovering the preview.')));
     toggles.append(createGuideToggle(settings, 'margin', _('Measure the margin while hovering the preview.')));
+    settings.bind(customStyleKey, toggles, 'sensitive', Gio.SettingsBindFlags.GET);
     const group = new Adw.PreferencesGroup({title: _('Preview'), header_suffix: toggles});
     const stage = new PreviewStage(stageHeight);
     group.add(stage);
@@ -114,9 +116,7 @@ export function createPreviewGroup({settings, watch, render, splitKey, stageHeig
     };
 
     connectScoped(group, Adw.StyleManager.get_default(), 'notify::accent-color', apply);
-    [...watch, COLOR_VARIANT_KEY]
-        .forEach(key => connectScoped(group, settings, `changed::${key}`, apply));
-    apply();
+    watchKeys(group, settings, [...watch, COLOR_VARIANT_KEY], apply);
 
     return group;
 }

@@ -12,7 +12,7 @@ import {clearIds, debounceTo, disposeAll, removeTimer} from '../../shared/lifecy
 import {isDisposed, trackDisposal} from '../disposal.js';
 import {stageScaleFactor} from '../actorPlacement.js';
 import {themeIconFile} from '../icons/iconResolver.js';
-import {applyMenuBoxStyle, closeMenuChain, FlyoutMenu, menuAnimation, menuForegroundColor, POPUP_ANIMATION_FULL, POPUP_ANIMATION_NONE, submenuFitsInline} from '../popupMenus.js';
+import {applyMenuBoxStyle, bindCollapsibleLook, closeMenuChain, FlyoutMenu, keepsOverflowOpen, menuAnimation, menuForegroundColor, overlayScrollbar, POPUP_ANIMATION_FULL, POPUP_ANIMATION_NONE, styleCollapsible, submenuFitsInline} from '../popupMenus.js';
 
 const GEOMETRY_SETTLE_MS = 50;
 
@@ -36,6 +36,17 @@ const RGBA_CHANNELS = 4;
 // pixmap.
 const OPAQUE_ALPHA_MIN = 128;
 
+// Room for any real menu icon, the menu draws them at 16 px.
+const ICON_DATA_MAX_PIXELS = 1024 * 1024;
+
+// Electron serves an empty root until the app sets its tray menu, which can
+// come late. Past this the app's own ContextMenu takes over.
+const LATE_LAYOUT_TIMEOUT_MS = 1000;
+
+// The PNG loader reports the size once it reaches the image data, so a file
+// with more metadata than this ahead of it gets refused.
+const ICON_DATA_HEADER_BYTES = 4096;
+
 // Every icon builds its own client, the proxy wrapper is the same for all.
 let _MenuProxyClass = null;
 
@@ -55,6 +66,10 @@ export class DBusMenuClient {
         this._idleIds = new Set();
         this._flyouts = new Set();
         this._cancellable = new Gio.Cancellable();
+        this._layoutSignalId = 0;
+        this._lateLayoutTimeoutId = 0;
+        this._resolveLateLayout = null;
+        this._isLayoutMissing = false;
     }
 
     init() {
@@ -76,6 +91,10 @@ export class DBusMenuClient {
                         reject(proxyError);
                         return;
                     }
+                    this._layoutSignalId = this._proxy.connectSignal('LayoutUpdated', () => {
+                        this._isLayoutMissing = false;
+                        this._settleLateLayout(true);
+                    });
                     resolve(true);
                 }
             );
@@ -106,6 +125,30 @@ export class DBusMenuClient {
             return;
 
         this._pinMenuWidth(gnomeMenu);
+    }
+
+    // Resolves true once the app announces a new layout. An app that let the
+    // last wait run out without an update since is not waited for again.
+    waitForLayout() {
+        if (this._isLayoutMissing || !this._proxy)
+            return Promise.resolve(false);
+        this._settleLateLayout(false);
+        return new Promise(resolve => {
+            this._resolveLateLayout = resolve;
+            this._lateLayoutTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, LATE_LAYOUT_TIMEOUT_MS, () => {
+                this._lateLayoutTimeoutId = 0;
+                this._isLayoutMissing = true;
+                this._settleLateLayout(false);
+                return GLib.SOURCE_REMOVE;
+            });
+        });
+    }
+
+    _settleLateLayout(hasLayout) {
+        clearIds(this, removeTimer, '_lateLayoutTimeoutId');
+        const resolve = this._resolveLateLayout;
+        this._resolveLateLayout = null;
+        resolve?.(hasLayout);
     }
 
     async _parseNode(node, parent) {
@@ -156,10 +199,11 @@ export class DBusMenuClient {
         let item;
         if (isSubmenu) {
             item = new PopupMenu.PopupSubMenuMenuItem(label);
+            overlayScrollbar(item.menu.actor);
             item.setSubmenuShown = shown => this._showSubMenu(item, id, shown);
             item.menu.connect('open-state-changed',
                 (menu, isOpen) => this._onSubMenuToggled(id, menu, isOpen));
-            this._holdOpenLookDuringCollapse(item);
+            bindCollapsibleLook(item);
         } else {
             item = new PopupMenu.PopupMenuItem(label);
 
@@ -228,10 +272,15 @@ export class DBusMenuClient {
     }
 
     async _applyIconData(icon, iconData) {
-        const stream = Gio.MemoryInputStream.new_from_bytes(iconData.get_data_as_bytes());
+        const bytes = iconData.get_data_as_bytes();
+        const size = MENU_ICON_SIZE * stageScaleFactor();
 
         try {
-            const pixbuf = await GdkPixbuf.Pixbuf.new_from_stream_async(stream, this._cancellable);
+            if (!fitsDecodeLimit(bytes))
+                throw new Error('image exceeds the decode limit');
+            const stream = Gio.MemoryInputStream.new_from_bytes(bytes);
+            const pixbuf = await GdkPixbuf.Pixbuf.new_from_stream_at_scale_async(
+                stream, size, size, true, this._cancellable);
             if (!isDisposed(icon))
                 icon.gicon = recoloredMonochrome(pixbuf, menuForegroundColor()) ?? pixbuf;
         } catch (e) {
@@ -263,16 +312,6 @@ export class DBusMenuClient {
             return GLib.SOURCE_REMOVE;
         });
         this._idleIds.add(id);
-    }
-
-    // The shell drops `checked` when the collapse starts, so the item snaps
-    // round while the submenu is still shrinking under it.
-    _holdOpenLookDuringCollapse(item) {
-        item.menu.connect('open-state-changed', (menu, isOpen) => {
-            if (!isOpen)
-                item.add_style_pseudo_class('checked');
-        });
-        item.menu.actor.connect('hide', () => item.remove_style_pseudo_class('checked'));
     }
 
     _onSubMenuToggled(id, submenu, isOpen) {
@@ -316,6 +355,7 @@ export class DBusMenuClient {
         if (!this._isLive(submenu))
             return;
 
+        forgetActiveItemsIn(submenu);
         submenu.removeAll();
         await this._parseChildren(children, submenu);
     }
@@ -355,11 +395,9 @@ export class DBusMenuClient {
         this._bindFlyoutOwner(flyout);
         flyout.connect('open-state-changed', (menu, isOpen) => {
             // Nothing else marks the item, its inline submenu stays shut
-            if (isOpen) {
-                item.add_style_pseudo_class('checked');
+            styleCollapsible(item, isOpen ? menu : null);
+            if (isOpen)
                 return;
-            }
-            item.remove_style_pseudo_class('checked');
             this._sendEvent(id, 'closed');
             this._dropFlyout(menu);
         });
@@ -419,7 +457,7 @@ export class DBusMenuClient {
     _pinMenuWidth(topMenu) {
         // Natural widths come in stage pixels, CSS px would scale again.
         const width = Math.ceil(this._maxNaturalWidth(topMenu) / stageScaleFactor());
-        applyMenuBoxStyle(topMenu, `min-width: ${width}px`);
+        applyMenuBoxStyle(topMenu, `min-width: ${width}px;`);
     }
 
     _maxNaturalWidth(menu) {
@@ -434,11 +472,11 @@ export class DBusMenuClient {
     _onItemClicked(id, parentMenu) {
         this._sendEvent(id, 'clicked');
 
-        closeMenuChain(parentMenu._getTopMenu());
+        const rootMenu = closeMenuChain(parentMenu._getTopMenu());
 
-        const shouldKeepPopup = this._settings.get_boolean('keep-popup-after-click');
+        const shouldKeepPopup = keepsOverflowOpen(this._settings);
         if (!shouldKeepPopup && this._onCloseMenu)
-            debounceTo(this, '_closeTimeoutId', GEOMETRY_SETTLE_MS, () => this._onCloseMenu());
+            debounceTo(this, '_closeTimeoutId', GEOMETRY_SETTLE_MS, () => this._onCloseMenu(rootMenu));
     }
 
     _sendEvent(id, eventId) {
@@ -452,6 +490,8 @@ export class DBusMenuClient {
 
     destroy() {
         disposeAll(this, 'cancel', '_cancellable');
+        this._settleLateLayout(false);
+        clearIds(this, id => this._proxy.disconnectSignal(id), '_layoutSignalId');
         clearIds(this, removeTimer, '_closeTimeoutId');
         for (const id of this._idleIds)
             GLib.source_remove(id);
@@ -462,6 +502,27 @@ export class DBusMenuClient {
         this._proxy = null;
         this._onCloseMenu = null;
     }
+}
+
+// The PNG loader allocates the full canvas before it scales, and a small file
+// can name a huge canvas. A zero size set from size-prepared stops it ahead of
+// that allocation (gdk-pixbuf io-png.c, png_info_callback).
+function fitsDecodeLimit(bytes) {
+    const loader = new GdkPixbuf.PixbufLoader();
+    let fits = false;
+    loader.connect('size-prepared', (_loader, width, height) => {
+        fits = width * height <= ICON_DATA_MAX_PIXELS;
+        if (!fits)
+            loader.set_size(0, 0);
+    });
+    const header = GLib.Bytes.new_from_bytes(bytes, 0, Math.min(bytes.get_size(), ICON_DATA_HEADER_BYTES));
+    try {
+        loader.write_bytes(header);
+        loader.close();
+    } catch {
+        // Only the size matters, not whether the cut-off image decodes
+    }
+    return fits;
 }
 
 // An app renders its menu pixmaps for its own theme, and one flat grey lands
@@ -520,5 +581,15 @@ function closeSubMenusIn(menu, animate, keepOpen = null) {
     for (const item of menu._getMenuItems()) {
         if (item.menu && item.menu !== keepOpen)
             item.menu.close(menuAnimation(animate));
+    }
+}
+
+// GNOME 49 keeps a destroyed item as its menus' active one, 50 clears it on
+// destroy (ui/popupMenu.js _subMenuActiveChanged), and the next hover then
+// touches the dead item. Every menu up the chain lets go of it first.
+function forgetActiveItemsIn(submenu) {
+    for (let menu = submenu; menu; menu = menu.sourceActor?._parent) {
+        if (menu._activeMenuItem && submenu.box.contains(menu._activeMenuItem))
+            menu._activeMenuItem = null;
     }
 }

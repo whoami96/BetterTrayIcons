@@ -5,15 +5,19 @@ import Adw from 'gi://Adw';
 import {gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {error} from '../../shared/logging.js';
+import {bindNarrowWindow} from './sidebar.js';
+import {ensurePrefsCss} from './text.js';
 
 export const ENTRY_DEBOUNCE_MS = 300;
 
 const TEXT_DIALOG_WIDTH_PX = 600;
 
-// The banner label wraps but sets no max-width-chars (adw-banner.ui), so its
-// natural width is the whole unwrapped sentence and a follows-content-size
-// dialog grows toward it.
-const BANNER_TITLE_MAX_CHARS = 40;
+// A wrapping label's natural width is the whole unwrapped sentence, and a
+// follows-content-size dialog would grow toward it. The allocation still
+// spans the group, so the cap only keeps the width request small.
+const ALERT_LABEL_MAX_CHARS = 40;
+
+const TAB_NAME_PREFIX = 'tab-';
 
 export function showConfirmationDialog(parent, {title, message, confirmLabel, destructive = false, onConfirm}) {
     const dialog = new Adw.AlertDialog({
@@ -38,7 +42,7 @@ export function showConfirmationDialog(parent, {title, message, confirmLabel, de
     dialog.present(parent);
 }
 
-export function openFileChooser(parent, {title, action = 'open', acceptLabel = null, currentName = null, filters}, callback) {
+export function openFileChooser(parent, {title, action = 'open', acceptLabel = null, currentName = null, filters, onDismiss = null}, callback) {
     const dialog = new Gtk.FileDialog({
         title,
         accept_label: acceptLabel,
@@ -59,6 +63,7 @@ export function openFileChooser(parent, {title, action = 'open', acceptLabel = n
         } catch (e) {
             if (!e.matches?.(Gtk.DialogError, Gtk.DialogError.DISMISSED))
                 error('FileDialog failed', e);
+            onDismiss?.();
         }
     };
 
@@ -85,23 +90,34 @@ export function createFileFilter(name, patterns, mimeTypes = []) {
 // the measure vfunc of a widget with a layout manager, and Adw.Bin has one.
 const NaturalWidthLayout = GObject.registerClass({GTypeName: 'BetterTrayIconsNaturalWidthLayout'},
     class NaturalWidthLayout extends Gtk.LayoutManager {
+        _init(naturalWidth) {
+            super._init();
+            this._naturalWidth = naturalWidth;
+            this._isFullWidth = false;
+        }
+
+        setFullWidth(isFullWidth) {
+            this._isFullWidth = isFullWidth;
+            this.layout_changed();
+        }
+
         // The content is wrapping labels, the default CONSTANT_SIZE would have
         // callers measure heights at unwrapped widths.
         vfunc_get_request_mode(widget) {
-            return widget.child?.get_request_mode() ?? Gtk.SizeRequestMode.CONSTANT_SIZE;
+            return widget.child.get_request_mode();
         }
 
         vfunc_measure(widget, orientation, forSize) {
-            let min = 0;
-            let nat = 0;
+            let minimum = 0;
+            let natural = 0;
             for (let child = widget.get_first_child(); child; child = child.get_next_sibling()) {
-                const [childMin, childNat] = child.measure(orientation, forSize);
-                min = Math.max(min, childMin);
-                nat = Math.max(nat, childNat);
+                const [childMinimum, childNatural] = child.measure(orientation, forSize);
+                minimum = Math.max(minimum, childMinimum);
+                natural = Math.max(natural, childNatural);
             }
             if (orientation === Gtk.Orientation.HORIZONTAL)
-                nat = Math.max(nat, widget.naturalWidth);
-            return [min, nat, -1, -1];
+                natural = Math.max(natural, this._isFullWidth ? widget.get_root().get_width() : this._naturalWidth);
+            return [minimum, natural, -1, -1];
         }
 
         vfunc_allocate(widget, width, height, baseline) {
@@ -111,15 +127,24 @@ const NaturalWidthLayout = GObject.registerClass({GTypeName: 'BetterTrayIconsNat
     });
 
 // Floating keeps the dialog vertically centered at every window size,
-// the automatic mode would dock it to the bottom as a sheet instead.
+// the automatic mode would dock it to the bottom as a sheet instead. In a
+// narrow window the dialog asks for the whole width so its rows don't squeeze.
+// The bin takes no focus, so a leading entry doesn't grab the caret on open
+// and pop the on-screen keyboard, Tab still walks into the rows.
 export function pinDialogWidth(dialog, width) {
     dialog.presentation_mode = Adw.DialogPresentationMode.FLOATING;
-    const bin = new Adw.Bin({layout_manager: new NaturalWidthLayout()});
-    bin.naturalWidth = width;
+    const layout = new NaturalWidthLayout(width);
+    const bin = new Adw.Bin({layout_manager: layout});
+    const setFullWidth = isNarrow => layout.setFullWidth(isNarrow);
+    const mapId = bin.connect('map', () => {
+        bin.disconnect(mapId);
+        setFullWidth(bindNarrowWindow(bin.get_root(), bin, setFullWidth));
+    });
     const child = dialog.child;
     dialog.child = null;
     bin.child = child;
     dialog.child = bin;
+    dialog.focus_widget = bin;
 }
 
 export function buildDialogShell({toast = false} = {}) {
@@ -153,11 +178,13 @@ export function showTextDialog(parent, {title, content}) {
     present(parent);
 }
 
-export function buildGroupDialog({title, width, groupTitle = ''}) {
-    const {toolbarView, page} = buildDialogShell();
-
-    const group = new Adw.PreferencesGroup({title: groupTitle});
-    page.add(group);
+// With tabs the header shows a switcher where the title was, and each tab
+// gets a page and a group of its own, in the order of the labels.
+export function buildGroupDialog({title, width, groupTitle = '', tabs = []}) {
+    const {toolbarView, headerBar, page} = buildDialogShell();
+    const groups = tabs.length
+        ? _addTabs(toolbarView, headerBar, tabs)
+        : [_addGroup(page, groupTitle)];
 
     const dialog = new Adw.Dialog({
         title,
@@ -166,22 +193,41 @@ export function buildGroupDialog({title, width, groupTitle = ''}) {
     });
     pinDialogWidth(dialog, width);
 
-    return {group, present: parent => dialog.present(parent)};
+    return {group: groups[0], groups, present: parent => dialog.present(parent)};
 }
 
-export function createCappedBanner(title, props = {}) {
-    const banner = new Adw.Banner({title, ...props});
-    _findLabel(banner)?.set_max_width_chars(BANNER_TITLE_MAX_CHARS);
-    return banner;
+function _addGroup(page, title) {
+    const group = new Adw.PreferencesGroup({title});
+    page.add(group);
+    return group;
 }
 
-function _findLabel(widget) {
-    if (widget instanceof Gtk.Label)
-        return widget;
-    for (let child = widget.get_first_child(); child; child = child.get_next_sibling()) {
-        const label = _findLabel(child);
-        if (label)
-            return label;
-    }
-    return null;
+function _addTabs(toolbarView, headerBar, labels) {
+    const stack = new Adw.ViewStack();
+    const switcher = new Adw.ToggleGroup();
+    const groups = labels.map((label, i) => {
+        const name = `${TAB_NAME_PREFIX}${i}`;
+        const page = new Adw.PreferencesPage();
+        stack.add_named(page, name);
+        switcher.add(new Adw.Toggle({name, label}));
+        return _addGroup(page, '');
+    });
+    switcher.bind_property('active-name', stack, 'visible-child-name', GObject.BindingFlags.SYNC_CREATE);
+    headerBar.title_widget = switcher;
+    toolbarView.content = stack;
+    return groups;
+}
+
+// page/public/components/dialog.js builds the same box for the site
+export function createAlert(text, {variant = 'neutral'} = {}) {
+    ensurePrefsCss();
+    const group = new Adw.PreferencesGroup();
+    group.add(new Gtk.Label({
+        label: text,
+        wrap: true,
+        max_width_chars: ALERT_LABEL_MAX_CHARS,
+        justify: Gtk.Justification.CENTER,
+        css_classes: ['bti-alert', `bti-alert-${variant}`],
+    }));
+    return group;
 }

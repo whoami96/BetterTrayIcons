@@ -15,9 +15,15 @@ export const DEFAULT_PILL_RADIUS_PX = 50;
 // Touch has no buttons, so it binds under its own name next to left/middle/right.
 export const TOUCH_BINDING = 'tap';
 
-// Spinner bounds the schema does not carry. It names a minimum and no maximum,
-// so a spinner sized off the schema alone would offer a two billion pixel icon.
-export const ICON_SIZE_RANGE_PX = Object.freeze({min: 16, max: 128, step: 2});
+// The schema range carries no step, the spinners take all three from here
+export const ICON_SIZE_RANGE_PX = Object.freeze({min: 0, max: 40, step: 1});
+
+// The display-mode choices in the schema
+export const DISPLAY_MODE = Object.freeze({
+    POPUP: 'popup',
+    DRAWER: 'drawer',
+    BACKGROUND_APPS: 'background-apps',
+});
 
 export const BORDER_RADIUS_MAX_PX = 50;
 
@@ -46,6 +52,7 @@ export const TRAY_STYLE_KEYS = Object.freeze([
     'icon-border-radius',
     'icon-border-width',
     'icon-color-split',
+    'icon-blur',
     ...withLightTwins(TRAY_COLOR_KEYS),
 ]);
 
@@ -57,9 +64,21 @@ export const BADGE_POSITIONS = Object.freeze(['bottom-right', 'bottom-left', 'to
 export const BADGE_DEFAULT_COLOR = '#e01b24';
 export const BADGE_DEFAULT_TEXT_COLOR = '#ffffff';
 
+// The donation services metadata.json may list, with the base URL and name
+// extensions.gnome.org uses for each, so a row opens the same page EGO links.
+// A service without a bundled icon gets the plain link glyph.
+export const DONATION_SERVICES = Object.freeze({
+    buymeacoffee: {name: 'Buy Me a Coffee', baseUrl: 'https://www.buymeacoffee.com', iconName: 'bti-buymeacoffee-symbolic'},
+    github: {name: 'GitHub', baseUrl: 'https://github.com/sponsors', iconName: 'bti-github-symbolic'},
+    kofi: {name: 'Ko-fi', baseUrl: 'https://ko-fi.com'},
+    liberapay: {name: 'Liberapay', baseUrl: 'https://liberapay.com'},
+    opencollective: {name: 'Open Collective', baseUrl: 'https://opencollective.com'},
+    patreon: {name: 'Patreon', baseUrl: 'https://www.patreon.com'},
+    paypal: {name: 'PayPal', baseUrl: 'https://paypal.me'},
+});
+
 // CONTRIBUTING.md has the opt-out procedure.
 export const CONTRIBUTORS_OPTOUT = new Set([
     'github-actions[bot]',
     'dependabot[bot]',
-    'Agent19872',
 ].map(name => name.toLowerCase()));

@@ -7,29 +7,45 @@ import Adw from 'gi://Adw';
 import {gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 import {accentValueKeeping, colorBehindAccent} from '../../shared/accentColor.js';
-import {COLOR_VARIANT_KEY} from '../../shared/colorVariant.js';
-import {connectScoped} from '../../shared/lifecycle.js';
-import {attachBadge} from './badge.js';
-import {createBoundToggleButton, createDialogGearButton, createIconButton} from './button.js';
-import {createColorButton, editedColorKey, editedColorUsesAccent, watchColorKey} from './color.js';
+import {COLOR_VARIANT_KEY, editedColorKey} from '../../shared/colorVariant.js';
+import {connectScoped, watchKeys} from '../../shared/lifecycle.js';
+import {attachBadge, createBadgeBox} from './badge.js';
+import {createBoundToggleButton, createDialogGearButton, createHelpButton, createIconButton} from './button.js';
+import {createColorButton, editedColorUsesAccent, watchColorKey} from './color.js';
 import {buildGroupDialog} from './dialog.js';
-import {applyPathIcon, NEXT_ICON_NAME} from './icon.js';
+import {applyPathIcon, NEXT_ICON_NAME, RESET_ICON_NAME} from './icon.js';
+import IconEmojiPicker from './iconEmojiPicker.js';
+import {setIconSubtitle} from './emoji.js';
 import {pushSubpage} from './sidebar.js';
+import {getChildren} from './text.js';
 
 // Keeps the dropdowns on the actions page flush.
 export const ACTION_DROPDOWN_WIDTH_PX = 240;
 
+// Both put the tray in the top panel, so they share the panel's rows
+export const PANEL_DISPLAY_MODES = Object.freeze(['popup', 'drawer']);
+
 const ROW_ICON_SIZE_PX = 24;
 
-const HELP_ICON_NAME = 'bti-help-symbolic';
-const HELP_TEXT_MAX_CHARS = 40;
-const HELP_TEXT_MARGIN_PX = 6;
+const RANGE_SCALE_WIDTH_PX = 160;
+
+// Room for two digits even when the range starts at a single one, the
+// position row grows its upper bound after it is built.
+const SPIN_MIN_WIDTH_CHARS = 2;
+const SPIN_TEXT_XALIGN_END = 1;
 
 const STYLE_DIALOG_WIDTH_PX = 420;
 
 const WRAP_CONTROLS_MAX_FRACTION = 0.6;
 const WRAP_ROW_H_GAP_PX = 12;
 const WRAP_ROW_V_GAP_PX = 8;
+const WRAP_ROW_SIDE_PX = 12;
+const WRAP_ROW_HELP_GAP_PX = 12;
+const WRAP_ROW_V_MARGIN_PX = 10;
+const WRAP_CONTROLS_SPACING_PX = 12;
+
+// Adwaita's pencil has no property, only this style class
+const ENTRY_EDIT_ICON_CLASS = 'edit-icon';
 
 export function addConfigRows(group, settings, specs) {
     for (const spec of specs)
@@ -41,9 +57,7 @@ function _createConfigRow(settings, spec) {
 
     if (spec.hiddenWhenAccent) {
         const key = spec.hiddenWhenAccent;
-        const sync = () => (row.visible = !editedColorUsesAccent(settings, key));
-        sync();
-        watchColorKey(row, settings, key, sync);
+        watchColorKey(row, settings, key, () => (row.visible = !editedColorUsesAccent(settings, key)));
     }
 
     const visibleKeys = [spec.visibleByKey ?? []].flat();
@@ -60,11 +74,7 @@ const CONFIG_ROW_BUILDERS = Object.freeze({
     segmented: (settings, spec) => createSegmentedRow({...spec, settings}),
     switch: (settings, spec) => createSwitchRow({...spec, settings}),
     accent: (settings, spec) => _createAccentSwitchRow(spec.title, settings, spec.key),
-    // A spec that names no bounds takes the schema's, so the two cannot drift.
-    spin: (settings, spec) => {
-        const bounds = spec.min === undefined ? _schemaRange(settings, spec.key) : {};
-        return createSpinRow({...bounds, ...spec, settings});
-    },
+    spin: (settings, spec) => createSpinRow({...spec, settings}),
     color: (settings, spec) => _createColorRow(spec.title, settings, spec.key),
 });
 
@@ -73,12 +83,84 @@ export function createComboRow({title, subtitle = '', settings, key, options, va
     return _createWrapRow(title, subtitle, [dropdown], help);
 }
 
-function _createWrapRow(title, subtitle, controls, help) {
+function _createWrapRow(title, subtitle, controls, help, options) {
+    return new Adw.PreferencesRow({child: _createWrapBox(title, subtitle, controls, help, options), activatable: false});
+}
+
+// Like createActionRow, with the badge line as a third line under the text.
+// The line keeps its height while empty, see createBadgeLine, so the rows of
+// a list stay the same height with and without badges.
+export function createBadgedActionRow({title, subtitle = '', prefixWidget = null, badgeLine, suffixWidgets = [], suffixIcon = null, onActivate}) {
+    const content = new Gtk.Box({
+        spacing: WRAP_ROW_H_GAP_PX,
+        margin_top: WRAP_ROW_V_MARGIN_PX,
+        margin_bottom: WRAP_ROW_V_MARGIN_PX,
+        margin_start: WRAP_ROW_SIDE_PX,
+        margin_end: WRAP_ROW_SIDE_PX,
+    });
+    if (prefixWidget)
+        content.append(_centered(prefixWidget));
+    const titles = _createTitles(title, subtitle, null);
+    titles.hexpand = true;
+    badgeLine.margin_top = WRAP_ROW_V_GAP_PX;
+    titles.append(badgeLine);
+    content.append(titles);
+    suffixWidgets.forEach(widget => content.append(_centered(widget)));
+    if (suffixIcon)
+        content.append(new Gtk.Image({icon_name: suffixIcon, valign: Gtk.Align.CENTER}));
+
+    const row = new Adw.PreferencesRow({child: content, activatable: true});
+    // A plain preferences row has no activated signal, its list reports it.
+    const mapId = row.connect('map', () => {
+        row.disconnect(mapId);
+        connectScoped(row, row.get_parent(), 'row-activated', (_list, activated) => {
+            if (activated === row)
+                onActivate();
+        });
+    });
+    return row;
+}
+
+// A stretching box hands the slider the full width once the controls drop
+// below the title, a start-aligned one keeps them under the text.
+function _createWrapBox(title, subtitle, controls, help, {stretch = false, keepTextWhole = false} = {}) {
+    const titles = _createTitles(title, subtitle, help);
+    const controlsBox = new Gtk.Box({
+        spacing: WRAP_CONTROLS_SPACING_PX,
+        halign: stretch ? Gtk.Align.FILL : Gtk.Align.END,
+        valign: Gtk.Align.CENTER,
+    });
+    controls.forEach(widget => controlsBox.append(widget));
+
+    const box = new Gtk.Box({
+        layout_manager: new WrapRowLayout(keepTextWhole),
+        margin_top: WRAP_ROW_V_MARGIN_PX,
+        margin_bottom: WRAP_ROW_V_MARGIN_PX,
+        margin_start: WRAP_ROW_SIDE_PX,
+        margin_end: WRAP_ROW_SIDE_PX,
+    });
+    box.append(titles);
+    box.append(controlsBox);
+    return box;
+}
+
+function _createTitles(title, subtitle, help) {
     const titles = new Gtk.Box({
         orientation: Gtk.Orientation.VERTICAL,
         valign: Gtk.Align.CENTER,
     });
-    titles.append(new Gtk.Label({label: title, halign: Gtk.Align.START, wrap: true, xalign: 0}));
+    const titleLabel = new Gtk.Label({label: title, halign: Gtk.Align.START, wrap: true, xalign: 0});
+    // The help shares the title line, so it stays up there when the controls
+    // drop under the text. A ready button is one the caller shows and hides.
+    if (help) {
+        const titleLine = new Gtk.Box({spacing: WRAP_ROW_HELP_GAP_PX});
+        titleLabel.hexpand = true;
+        titleLine.append(titleLabel);
+        titleLine.append(help instanceof Gtk.Widget ? help : createHelpButton(help, {compact: true}));
+        titles.append(titleLine);
+    } else {
+        titles.append(titleLabel);
+    }
     if (subtitle) {
         titles.append(new Gtk.Label({
             label: subtitle,
@@ -88,42 +170,27 @@ function _createWrapRow(title, subtitle, controls, help) {
             css_classes: ['caption', 'dimmed'],
         }));
     }
-
-    const controlsBox = new Gtk.Box({spacing: 12, halign: Gtk.Align.END, valign: Gtk.Align.CENTER});
-    if (help)
-        controlsBox.append(_createHelpButton(help));
-    controls.forEach(widget => controlsBox.append(widget));
-
-    const box = new Gtk.Box({
-        layout_manager: new WrapRowLayout(),
-        margin_top: 10,
-        margin_bottom: 10,
-        margin_start: 12,
-        margin_end: 12,
-    });
-    box.append(titles);
-    box.append(controlsBox);
-
-    return new Adw.PreferencesRow({child: box, activatable: false});
-}
-
-function _getChildren(widget) {
-    const children = [];
-    for (let child = widget.get_first_child(); child; child = child.get_next_sibling())
-        children.push(child);
-    return children;
+    return titles;
 }
 
 // A wrap box wraps as soon as the unwrapped title stops fitting, so a long
 // subtitle pushes the controls down in a row with room to spare for them.
 const WrapRowLayout = GObject.registerClass({GTypeName: 'BetterTrayIconsWrapRowLayout'},
     class WrapRowLayout extends Gtk.LayoutManager {
+        // With keepTextWhole the controls also drop as soon as the title or
+        // subtitle would have to wrap beside them, an app row's ID reads badly
+        // broken over lines.
+        _init(keepTextWhole = false) {
+            super._init();
+            this._keepTextWhole = keepTextWhole;
+        }
+
         vfunc_get_request_mode(_widget) {
             return Gtk.SizeRequestMode.HEIGHT_FOR_WIDTH;
         }
 
         vfunc_measure(widget, orientation, forSize) {
-            const [titles, controlsBox] = _getChildren(widget);
+            const [titles, controlsBox] = getChildren(widget);
             if (orientation === Gtk.Orientation.HORIZONTAL) {
                 const [titlesMin, titlesNatural] = titles.measure(orientation, -1);
                 const [controlsMin, controlsNatural] = controlsBox.measure(orientation, -1);
@@ -148,7 +215,7 @@ const WrapRowLayout = GObject.registerClass({GTypeName: 'BetterTrayIconsWrapRowL
         }
 
         vfunc_allocate(widget, width, height, _baseline) {
-            const [titles, controlsBox] = _getChildren(widget);
+            const [titles, controlsBox] = getChildren(widget);
             const [, controlsWidth] = controlsBox.measure(Gtk.Orientation.HORIZONTAL, -1);
 
             if (this._dropsBelow(titles, controlsWidth, width)) {
@@ -167,22 +234,21 @@ const WrapRowLayout = GObject.registerClass({GTypeName: 'BetterTrayIconsWrapRowL
         }
 
         _dropsBelow(titles, controlsWidth, width) {
-            const [titlesMin] = titles.measure(Gtk.Orientation.HORIZONTAL, -1);
-            const controlsTooWide = controlsWidth > width * WRAP_CONTROLS_MAX_FRACTION;
-            const titlesWouldCrush = width - controlsWidth - WRAP_ROW_H_GAP_PX < titlesMin;
-            return controlsTooWide || titlesWouldCrush;
+            const [titlesMin, titlesNatural] = titles.measure(Gtk.Orientation.HORIZONTAL, -1);
+            const areControlsTooWide = controlsWidth > width * WRAP_CONTROLS_MAX_FRACTION;
+            const willCrushTitles = width - controlsWidth - WRAP_ROW_H_GAP_PX < titlesMin;
+            const willWrapText = this._keepTextWhole && controlsWidth > 0 &&
+                width - controlsWidth - WRAP_ROW_H_GAP_PX < titlesNatural;
+            return areControlsTooWide || willCrushTitles || willWrapText;
         }
     });
 
-export function createSpinRow({title, subtitle = '', settings, key, min = 0, max, step = 1, help = null}) {
-    const row = new Adw.SpinRow({
-        title,
-        subtitle,
-        adjustment: new Gtk.Adjustment({lower: min, upper: max, step_increment: step}),
-    });
-    settings.bind(key, row, 'value', Gio.SettingsBindFlags.DEFAULT);
-    _addHelp(row, help);
-    return row;
+// A caller that names no bounds takes the schema's, so the two cannot drift.
+export function createSpinRow({title, subtitle = '', settings, key, min, max, step = 1, help = null}) {
+    const {min: lower = 0, max: upper} = min === undefined ? _schemaRange(settings, key) : {min, max};
+    const adjustment = new Gtk.Adjustment({lower, upper, step_increment: step});
+    settings.bind(key, adjustment, 'value', Gio.SettingsBindFlags.DEFAULT);
+    return createAdjustmentSpinRow({title, subtitle, adjustment, help});
 }
 
 function _schemaRange(settings, key) {
@@ -190,33 +256,94 @@ function _schemaRange(settings, key) {
     return {min, max};
 }
 
-export function createSegmentedRow({title, subtitle = '', settings, key, options, values, negate = null, help = null}) {
-    const group = new Adw.ToggleGroup({valign: Gtk.Align.CENTER});
-    options.forEach((label, i) => group.add(new Adw.Toggle({label, name: values[i]})));
-    group.update_property([Gtk.AccessibleProperty.LABEL], [title]);
+// Adw.SpinRow draws loose text between two round buttons, the plain spin
+// button keeps Adwaita's single rounded pill.
+export function createAdjustmentSpinRow({title, subtitle = '', adjustment, help = null}) {
+    return createActionRow({title, subtitle, suffixWidgets: [_createSpinButton(title, adjustment)], help});
+}
 
-    _bindSelectionToSetting(group, settings, key, {
-        signal: 'notify::active-name',
-        getValue: w => w.active_name || null,
-        setValue: (w, value) => (w.active_name = value),
+// A fixed field keeps the pill still while the digit count changes, the
+// number hugs the right edge and a new digit grows to the left.
+function _createSpinButton(title, adjustment) {
+    const widthChars = Math.max(SPIN_MIN_WIDTH_CHARS, String(adjustment.upper).length);
+    const spinButton = new Gtk.SpinButton({
+        adjustment,
+        numeric: true,
+        valign: Gtk.Align.CENTER,
+        width_chars: widthChars,
+        xalign: SPIN_TEXT_XALIGN_END,
     });
+    spinButton.update_property([Gtk.AccessibleProperty.LABEL], [title]);
+    return spinButton;
+}
 
+// One adjustment drives the slider and the number, so each follows the other at
+// once and a typed value clamps to the range.
+export function createRangeRow({title, subtitle = '', settings, key, min = 0, max, step = 1}) {
+    const adjustment = new Gtk.Adjustment({lower: min, upper: max, step_increment: step});
+    settings.bind(key, adjustment, 'value', Gio.SettingsBindFlags.DEFAULT);
+
+    const scale = new Gtk.Scale({
+        adjustment,
+        draw_value: false,
+        round_digits: 0,
+        width_request: RANGE_SCALE_WIDTH_PX,
+        hexpand: true,
+        valign: Gtk.Align.CENTER,
+    });
+    scale.update_property([Gtk.AccessibleProperty.LABEL], [title]);
+
+    return _createWrapRow(title, subtitle, [scale, _createSpinButton(title, adjustment)], null, {stretch: true});
+}
+
+export function createSegmentedRow({title, subtitle = '', settings, key, options, values, negate = null, help = null}) {
+    const group = createBoundToggleGroup({title, settings, key, options, values});
     const negateButton = negate ? _createNegateButton(settings, negate, group, options) : null;
 
     return createActionRow({title, subtitle, suffixWidgets: [negateButton, group].filter(Boolean), help});
+}
+
+export function createToggleGroup({title, options, values, active, onChange}) {
+    const group = new Adw.ToggleGroup({valign: Gtk.Align.CENTER});
+    options.forEach((label, i) => group.add(new Adw.Toggle({label, name: values[i]})));
+    group.update_property([Gtk.AccessibleProperty.LABEL], [title]);
+    group.active_name = active;
+    group.connect('notify::active-name', () => onChange(group.active_name));
+    return group;
+}
+
+export function createBoundToggleGroup({title, settings, key, options, values}) {
+    const group = createToggleGroup({
+        title,
+        options,
+        values,
+        active: settings.get_string(key),
+        onChange: value => {
+            if (value && value !== settings.get_string(key))
+                settings.set_string(key, value);
+        },
+    });
+    watchKeys(group, settings, [key], () => (group.active_name = settings.get_string(key)));
+    return group;
+}
+
+// A toggle group beside a badge outgrows a narrow row, so the controls drop
+// under the text the way the select rows do.
+export function createWrapControlsRow({title, subtitle = '', controls, badge = null, help = null, keepTextWhole = false}) {
+    const badgeBox = badge ? createBadgeBox(badge) : null;
+    return _createWrapRow(title, subtitle, [badgeBox, ...controls].filter(Boolean), help, {keepTextWhole});
 }
 
 function _createNegateButton(settings, {key, iconName, tooltip}, group, options) {
     const button = createBoundToggleButton(settings, key, {iconName, tooltip});
 
     const sync = () => {
-        const negated = settings.get_boolean(key);
+        const isNegated = settings.get_boolean(key);
         options.forEach((label, i) => {
-            group.get_toggle(i).label = negated ? `-${label}` : label;
+            group.get_toggle(i).label = isNegated ? `-${label}` : label;
         });
     };
-    connectScoped(group, settings, `changed::${key}`, sync);
-    sync();
+    watchKeys(group, settings, [key], sync);
 
     return button;
 }
@@ -225,11 +352,8 @@ function _createColorRow(title, settings, key, {accentAware = false, parent = nu
     const row = new Adw.ActionRow({title});
     const colorButton = createColorButton(settings, key, title);
 
-    if (accentAware) {
-        const sync = () => (colorButton.sensitive = !editedColorUsesAccent(settings, key));
-        sync();
-        watchColorKey(colorButton, settings, key, sync);
-    }
+    if (accentAware)
+        watchColorKey(colorButton, settings, key, () => (colorButton.sensitive = !editedColorUsesAccent(settings, key)));
 
     // Adw rows pack add_suffix() left-to-right, so the paint-bucket goes in
     // first to land left of the color swatch.
@@ -268,6 +392,13 @@ export function createSwitchRow({title, subtitle = '', settings, key, help = nul
     return row;
 }
 
+// For a value stored outside GSettings, the caller writes it on each toggle
+export function createValueSwitchRow({title, subtitle = '', active, onToggle}) {
+    const row = new Adw.SwitchRow({title, subtitle, active});
+    row.connect('notify::active', () => onToggle(row.active));
+    return row;
+}
+
 export function createSubpageRow({title, subtitle = '', window, SubpageClass, settings, prefixIcon = null, help = null}) {
     return createActionRow({
         title,
@@ -279,30 +410,20 @@ export function createSubpageRow({title, subtitle = '', window, SubpageClass, se
     });
 }
 
-export function createIconPickerRow({title, settings, key, window, PickerClass, icons, help = null, ...options}) {
+export function createIconEmojiPickerRow({title, settings, key, icons, ...options}) {
     const iconPreview = new Gtk.Image({pixel_size: ROW_ICON_SIZE_PX, valign: Gtk.Align.CENTER});
-    applyPathIcon(iconPreview, settings.get_string(key), settings);
-
     const row = createActionRow({
         title,
-        subtitle: settings.get_string(key),
         suffixWidgets: [iconPreview],
         suffixIcon: NEXT_ICON_NAME,
-        help,
-        onActivate: () => {
-            const picker = new PickerClass(settings, key, icons, null, null, options);
-            picker.present(window);
-        },
+        onActivate: () => new IconEmojiPicker({settings, key, icons, ...options}).popupFor(row),
     });
 
-    const updateRow = () => {
-        const newValue = settings.get_string(key);
-        row.set_subtitle(newValue);
-        applyPathIcon(iconPreview, newValue, settings);
-    };
-
-    connectScoped(row, settings, `changed::${key}`, updateRow);
-
+    watchKeys(row, settings, [key], () => {
+        const value = settings.get_string(key);
+        setIconSubtitle(row, value);
+        applyPathIcon(iconPreview, value, settings);
+    });
     return row;
 }
 
@@ -339,13 +460,8 @@ export function createComplexSwitchRow({title, subtitle = '', settings, key, win
 }
 
 export function bindVisibility(settings, key, widget, targetValue) {
-    const updateState = () => {
-        const current = settings.get_string(key);
-        widget.visible = current === targetValue;
-    };
-
-    updateState();
-    connectScoped(widget, settings, `changed::${key}`, updateState);
+    const targets = [targetValue].flat();
+    bindGroupsVisible(widget, settings, [widget], () => targets.includes(settings.get_string(key)), key);
 }
 
 export function createActionRow({
@@ -395,38 +511,42 @@ export function createActionRow({
     return row;
 }
 
+// A reset takes the place of Adwaita's pencil, so the row hints at one
+// thing at a time. At resetText it goes insensitive instead of away, so the
+// row never loses its hint.
+export function createEntryRow({title, text = '', showApplyButton = false, resetText = '', onReset = null}) {
+    const row = new Adw.EntryRow({title, text, show_apply_button: showApplyButton});
+    if (!onReset)
+        return row;
+
+    _findDescendant(row, ENTRY_EDIT_ICON_CLASS).visible = false;
+    const resetButton = createIconButton(RESET_ICON_NAME, {tooltip: _('Reset'), onClick: onReset});
+    const syncResetButton = () => {
+        resetButton.sensitive = row.text !== resetText;
+    };
+    syncResetButton();
+    row.connect('notify::text', syncResetButton);
+    row.add_suffix(resetButton);
+    return row;
+}
+
+function _findDescendant(widget, cssClass) {
+    for (const child of getChildren(widget)) {
+        const match = child.has_css_class(cssClass) ? child : _findDescendant(child, cssClass);
+        if (match)
+            return match;
+    }
+    return null;
+}
+
 // Leads the suffixes where a gear would sit, so the switches of a group stay
 // in one column whether a row has help or not.
 function _addHelp(row, help) {
     if (!help)
         return;
-    const button = _createHelpButton(help);
+    const button = createHelpButton(help);
     row.add_suffix(button);
     button.get_parent().reorder_child_after(button, null);
-}
-
-// A tooltip never shows on touch, so a tap opens the same text in a popover.
-function _createHelpButton(text) {
-    const label = new Gtk.Label({
-        label: text,
-        wrap: true,
-        max_width_chars: HELP_TEXT_MAX_CHARS,
-        xalign: 0,
-        margin_top: HELP_TEXT_MARGIN_PX,
-        margin_bottom: HELP_TEXT_MARGIN_PX,
-        margin_start: HELP_TEXT_MARGIN_PX,
-        margin_end: HELP_TEXT_MARGIN_PX,
-    });
-    const button = new Gtk.MenuButton({
-        icon_name: HELP_ICON_NAME,
-        popover: new Gtk.Popover({child: label}),
-        tooltip_text: text,
-        has_frame: false,
-        css_classes: ['circular'],
-        valign: Gtk.Align.CENTER,
-    });
-    button.update_property([Gtk.AccessibleProperty.LABEL], [_('Help')]);
-    return button;
 }
 
 export function createExpanderSection({title, subtitle = '', headerSuffix = null, badge = null}) {
@@ -452,19 +572,16 @@ export function createExpanderSection({title, subtitle = '', headerSuffix = null
 }
 
 export function bindGroupsVisible(owner, settings, groups, isVisible, ...keys) {
-    const sync = () => groups.forEach(group => (group.visible = isVisible()));
-    keys.forEach(key => connectScoped(owner, settings, `changed::${key}`, sync));
-    sync();
+    watchKeys(owner, settings, keys, () => groups.forEach(group => (group.visible = isVisible())));
 }
 
 export function createColorSetRow({settings, splitKey}) {
-    const tabs = new Adw.ToggleGroup({valign: Gtk.Align.CENTER});
-    [[_('Dark'), 'dark'], [_('Light'), 'light']].forEach(([label, name]) => tabs.add(new Adw.Toggle({label, name})));
-    tabs.update_property([Gtk.AccessibleProperty.LABEL], [_('Color Set')]);
-    _bindSelectionToSetting(tabs, settings, COLOR_VARIANT_KEY, {
-        signal: 'notify::active-name',
-        getValue: w => w.active_name || null,
-        setValue: (w, value) => (w.active_name = value),
+    const tabs = createBoundToggleGroup({
+        title: _('Color Set'),
+        settings,
+        key: COLOR_VARIANT_KEY,
+        options: [_('Dark'), _('Light')],
+        values: ['dark', 'light'],
     });
 
     const split = new Gtk.Switch({valign: Gtk.Align.CENTER});
@@ -531,7 +648,6 @@ function _createAccentSwitchRow(title, settings, colorKey) {
             settings.reset(edited);
     });
 
-    sync();
     watchColorKey(row, settings, colorKey, sync);
     return row;
 }
@@ -551,35 +667,20 @@ function _createBoundDropdown(settings, key, displayOptions, values, {width = -1
 
     dropdown.update_property([Gtk.AccessibleProperty.LABEL], [label]);
 
-    _bindSelectionToSetting(dropdown, settings, key, {
-        signal: 'notify::selected',
-        getValue: w => w.selected < values.length ? values[w.selected] : null,
-        setValue: (w, value) => {
-            const index = values.indexOf(value);
-            if (index !== -1)
-                w.selected = index;
-        },
+    // No valid selection reads as undefined and skips the write instead of
+    // clearing the setting.
+    dropdown.connect('notify::selected', () => {
+        const value = values[dropdown.selected];
+        if (value !== undefined && value !== settings.get_string(key))
+            settings.set_string(key, value);
+    });
+    watchKeys(dropdown, settings, [key], () => {
+        const index = values.indexOf(settings.get_string(key));
+        if (index !== -1)
+            dropdown.selected = index;
     });
 
     return dropdown;
-}
-
-// getValue returning null means "no valid selection", which skips the
-// write instead of clearing the setting.
-function _bindSelectionToSetting(widget, settings, key, {signal, getValue, setValue}) {
-    setValue(widget, settings.get_string(key));
-
-    widget.connect(signal, () => {
-        const value = getValue(widget);
-        if (value !== null && value !== settings.get_string(key))
-            settings.set_string(key, value);
-    });
-
-    connectScoped(widget, settings, `changed::${key}`, () => {
-        const value = settings.get_string(key);
-        if (getValue(widget) !== value)
-            setValue(widget, value);
-    });
 }
 
 // Adw rows stretch prefix and suffix children to the full row height.

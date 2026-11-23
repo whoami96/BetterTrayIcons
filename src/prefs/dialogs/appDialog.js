@@ -3,16 +3,18 @@ import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk';
 import {gettext as _} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {setAppConfigValue, deleteAppConfig, defaultAppName, displayAppName, orderedAppIds, readVisibleOrder, setAppPriorities, getAppConfigMap} from '../../shared/appConfig.js';
-import {resolveIcon, themeProbeKey} from '../../shared/iconLoading.js';
+import {setAppConfigValue, deleteAppConfig, defaultAppName, displayAppName, orderedAppIds, readVisibleOrder, setAppPriorities, getAppConfigMap, whenInFrontOf, WHEN_IN_FRONT_NONE, SCROLL_ACTION_DEFAULT} from '../../shared/appConfig.js';
+import {themeProbeKey} from '../../shared/iconLoading.js';
 import {clearIds, connectScoped, debounceTo, removeTimer} from '../../shared/lifecycle.js';
 import {createButton, createIconButton} from '../components/button.js';
 import {createImage} from '../components/image.js';
-import {createCappedBanner, ENTRY_DEBOUNCE_MS, pinDialogWidth, showConfirmationDialog} from '../components/dialog.js';
-import {applyIconPreview, hasThemeIcon, NEXT_ICON_NAME} from '../components/icon.js';
-import {createActionRow} from '../components/row.js';
+import {createAlert, ENTRY_DEBOUNCE_MS, pinDialogWidth, showConfirmationDialog} from '../components/dialog.js';
+import {applyIconPreview, resolveAppIcon, watchShownIcons, NEXT_ICON_NAME, RESET_ICON_NAME} from '../components/icon.js';
+import {GONE_ICON_NAME} from '../appPresence.js';
+import {createActionRow, createAdjustmentSpinRow, createEntryRow, createToggleGroup, createValueSwitchRow, createWrapControlsRow} from '../components/row.js';
 import {buildPrefsWidget} from '../components/page.js';
-import IconPickerDialog from '../components/picker.js';
+import IconEmojiPicker from '../components/iconEmojiPicker.js';
+import {setIconSubtitle} from '../components/emoji.js';
 import StatusBadgeDialog from './statusBadgeDialog.js';
 
 const APP_DIALOG_WIDTH_PX = 540;
@@ -23,7 +25,7 @@ export default class AppDialog extends Adw.Dialog {
         GObject.registerClass({GTypeName: 'BetterTrayIconsAppDialog'}, this);
     }
 
-    _init(settings, appId, appData, iconPaths, {onForget}) {
+    _init(settings, appId, appData, iconPaths, {onForget, isGone = false}) {
         super._init({
             title: displayAppName(appData, appId) || _('App Settings'),
             follows_content_size: true,
@@ -34,13 +36,23 @@ export default class AppDialog extends Adw.Dialog {
         this._data = appData;
         this._iconPaths = iconPaths;
         this._onForget = onForget;
+        this._isGone = isGone;
         this._debounceId = 0;
-        this._suppressNameNotify = false;
-        this._suppressPositionNotify = false;
+        this._isNameNotifySuppressed = false;
+        this._isPositionNotifySuppressed = false;
+        this._shownIcon = null;
 
         this._buildUI();
         pinDialogWidth(this, APP_DIALOG_WIDTH_PX);
         this.connect('closed', () => this._flushPendingName());
+        watchShownIcons(this, shown => this._applyShownIcon(shown[appId] ?? null), 'closed');
+    }
+
+    _applyShownIcon(shown) {
+        if (JSON.stringify(shown) === JSON.stringify(this._shownIcon))
+            return;
+        this._shownIcon = shown;
+        applyIconPreview(this._iconImage, this._resolveIcon(), this._settings);
     }
 
     _buildUI() {
@@ -54,14 +66,10 @@ export default class AppDialog extends Adw.Dialog {
 
         if (this._data.is_wine || this._data.is_proton) {
             const flavor = this._data.is_proton ? _('Proton') : _('Wine');
-            const noticeGroup = new Adw.PreferencesGroup();
-            noticeGroup.add(createCappedBanner(
-                `${flavor}: ${_('Tray icons are drawn by the app itself via XEmbed, so a custom icon cannot be applied.')}`,
-                {revealed: true}));
-            page.add(noticeGroup);
+            page.add(createAlert(
+                `${flavor}: ${_('This app draws its tray icon itself via XEmbed. Custom icon and scroll settings do not apply here.')}`,
+                {variant: 'warning'}));
         }
-
-        const defaultName = defaultAppName(this._data, this._appId);
 
         const group = new Adw.PreferencesGroup({
             title: _('Configuration'),
@@ -69,71 +77,27 @@ export default class AppDialog extends Adw.Dialog {
         });
         page.add(group);
 
-        const nameRow = new Adw.EntryRow({
-            title: _('Name'),
-            text: this._data.custom_title || defaultName,
-            show_apply_button: false,
-        });
+        group.add(this._buildNameRow());
 
-        const resetNameButton = createIconButton('bti-reset-symbolic', {
-            tooltip: _('Reset name'),
-            visible: !!this._data.custom_title,
-        });
-
-        resetNameButton.connect('clicked', () => {
-            this._updateValue('custom_title', null);
-            // Without this, notify::text schedules a debounced write that
-            // re-persists the field as a custom_title and undoes the reset.
-            this._suppressNameNotify = true;
-            nameRow.text = defaultName;
-            this._suppressNameNotify = false;
-            clearIds(this, removeTimer, '_debounceId');
-            resetNameButton.visible = false;
-        });
-
-        nameRow.add_suffix(resetNameButton);
-
-        this._nameRow = nameRow;
-        nameRow.connect('notify::text', () => {
-            if (this._suppressNameNotify)
-                return;
-            debounceTo(this, '_debounceId', ENTRY_DEBOUNCE_MS, () => this._updateValue('custom_title', nameRow.text));
-            resetNameButton.visible = true;
-        });
-        group.add(nameRow);
-
-        const hideRow = new Adw.SwitchRow({
+        group.add(createValueSwitchRow({
             title: _('Hide Icon'),
             subtitle: _('Don’t show this icon in the tray.'),
             active: this._data.is_hidden === true,
-        });
+            onToggle: isHidden => this._updateValue('is_hidden', isHidden),
+        }));
 
-        hideRow.connect('notify::active', () => {
-            this._updateValue('is_hidden', hideRow.active);
-        });
-        group.add(hideRow);
-
-        if (!(this._data.is_xembed || this._data.is_background_proxy || this._data.is_foreign)) {
-            const forcedOn = this._settings.get_boolean('minimize-when-focused');
-            const minimizeRow = new Adw.SwitchRow({
-                title: _('Minimize When in Front'),
-                subtitle: forcedOn
-                    ? _('Turned on for every app on the General page.')
-                    : _('Clicking the icon while the app is in front minimizes its windows.'),
-                active: forcedOn || this._data.minimize_when_focused === true,
-                sensitive: !forcedOn,
-            });
-            minimizeRow.connect('notify::active', () => {
-                this._updateValue('minimize_when_focused', minimizeRow.active);
-            });
-            group.add(minimizeRow);
-        }
+        const canScroll = !(this._data.is_xembed || this._data.is_background_proxy || this._data.is_foreign);
+        if (!this._data.is_foreign)
+            group.add(this._buildWhenInFrontRow());
+        if (canScroll)
+            group.add(this._buildScrollRow());
 
         group.add(this._buildPositionRow());
 
         // A foreign item is drawn by the extension that handed it in, so an icon
         // of ours would never reach it.
-        if (!(this._data.is_wine || this._data.is_proton || this._data.is_foreign)) {
+        const canTakeCustomIcon = !(this._data.is_wine || this._data.is_proton || this._data.is_foreign);
+        if (canTakeCustomIcon) {
             group.add(this._buildCustomIconRow());
             // States and badges come from SNI and LauncherEntry, and an XEmbed
             // item has neither the properties nor a resolvable desktop id, so
@@ -145,6 +109,203 @@ export default class AppDialog extends Adw.Dialog {
             }
         }
 
+        this._addDangerGroup(page);
+    }
+
+    _buildNameRow() {
+        const defaultName = defaultAppName(this._data, this._appId);
+        const nameRow = createEntryRow({
+            title: _('Name'),
+            text: this._data.custom_title || defaultName,
+            resetText: defaultName,
+            onReset: () => {
+                this._updateValue('custom_title', null);
+                // Without this, notify::text schedules a debounced write that
+                // re-persists the field as a custom_title and undoes the reset.
+                this._isNameNotifySuppressed = true;
+                nameRow.text = defaultName;
+                this._isNameNotifySuppressed = false;
+                clearIds(this, removeTimer, '_debounceId');
+            },
+        });
+
+        this._nameRow = nameRow;
+        nameRow.connect('notify::text', () => {
+            if (this._isNameNotifySuppressed)
+                return;
+            debounceTo(this, '_debounceId', ENTRY_DEBOUNCE_MS, () => this._updateValue('custom_title', nameRow.text));
+        });
+        return nameRow;
+    }
+
+    _flushPendingName() {
+        if (!this._debounceId)
+            return;
+        clearIds(this, removeTimer, '_debounceId');
+        this._updateValue('custom_title', this._nameRow.text);
+    }
+
+    _buildWhenInFrontRow() {
+        const forcedValue = this._settings.get_string('when-in-front');
+        const isForced = forcedValue !== WHEN_IN_FRONT_NONE;
+        const title = _('Minimize Action for Unsupported Apps');
+
+        const toggles = createToggleGroup({
+            title,
+            options: [_('Default'), _('Minimize'), _('Close')],
+            values: [WHEN_IN_FRONT_NONE, 'minimize', 'close'],
+            active: isForced ? forcedValue : whenInFrontOf(this._data),
+            onChange: name => this._updateValue('when_in_front', name),
+        });
+
+        const row = createWrapControlsRow({
+            title,
+            subtitle: isForced
+                ? _('Set for every app on the General page.')
+                : _('For apps that do not hide themselves when their icon is clicked while they are in front.'),
+            controls: [toggles],
+            badge: {text: _('Experimental')},
+            keepTextWhole: true,
+        });
+        row.sensitive = !isForced;
+        return row;
+    }
+
+    _buildScrollRow() {
+        const title = _('Scroll');
+        const toggles = createToggleGroup({
+            title,
+            options: [_('Default'), _('Forward'), _('None')],
+            values: [SCROLL_ACTION_DEFAULT, 'forward', 'nothing'],
+            active: this._data.scroll_action ?? SCROLL_ACTION_DEFAULT,
+            onChange: name => this._updateValue('scroll_action', name),
+        });
+
+        return createWrapControlsRow({
+            title,
+            subtitle: _('Forward sends the mouse wheel to the app. Default follows the Actions page.'),
+            controls: [toggles],
+            keepTextWhole: true,
+        });
+    }
+
+    // Goes through setAppPriorities like drag and scroll do. Writing a raw
+    // priority instead would take PRIORITY_STEP clicks to move one slot.
+    _buildPositionRow() {
+        this._positionAdjustment = new Gtk.Adjustment({lower: 1, upper: 1, step_increment: 1, value: 1});
+        this._positionRow = createAdjustmentSpinRow({title: _('Position'), adjustment: this._positionAdjustment});
+
+        this._positionAdjustment.connect('value-changed', async () => {
+            if (this._isPositionNotifySuppressed)
+                return;
+            const order = await this._positionOrder();
+            const from = order.indexOf(this._appId);
+            const to = this._positionAdjustment.value - 1;
+            if (from === -1 || from === to)
+                return;
+            order.splice(to, 0, ...order.splice(from, 1));
+            setAppPriorities(this._settings, order);
+        });
+
+        this._syncPositionRow();
+
+        return this._positionRow;
+    }
+
+    async _syncPositionRow() {
+        const order = await this._positionOrder();
+        const index = order.indexOf(this._appId);
+        const isAbsent = index === -1;
+
+        this._positionRow.sensitive = !isAbsent && order.length > 1;
+        if (this._data.is_hidden) {
+            this._positionRow.subtitle = _('Hidden icons have no position.');
+        } else if (isAbsent) {
+            this._positionRow.subtitle = '';
+        } else {
+            // Numbered placeholders so a translation can put the count first.
+            // GJS ships no String.prototype.format, hence the plain replace.
+            this._positionRow.subtitle = _('Position %1 of %2, counted from the left.')
+                .replace('%1', String(index + 1))
+                .replace('%2', String(order.length));
+        }
+
+        this._isPositionNotifySuppressed = true;
+        this._positionAdjustment.set_upper(Math.max(order.length, 1));
+        this._positionAdjustment.set_value(isAbsent ? 1 : index + 1);
+        this._isPositionNotifySuppressed = false;
+    }
+
+    // The config also holds closed and uninstalled apps, so its numbers drift
+    // from what the panel shows.
+    async _positionOrder() {
+        return await readVisibleOrder() ?? orderedAppIds(this._settings);
+    }
+
+    _buildCustomIconRow() {
+        const iconResult = this._resolveIcon();
+
+        const iconImage = createImage({pixel_size: ICON_PREVIEW_SIZE_PX});
+        this._iconImage = iconImage;
+        if (this._isGone)
+            iconImage.set_from_icon_name(GONE_ICON_NAME);
+        else
+            applyIconPreview(iconImage, iconResult, this._settings);
+
+        const resetButton = createIconButton(RESET_ICON_NAME, {
+            tooltip: _('Reset icon'),
+            visible: !!this._data.custom_icon,
+        });
+
+        resetButton.connect('clicked', () => {
+            this._updateValue('custom_icon', null);
+            const newResult = this._resolveIcon();
+            setIconSubtitle(iconRow, null, _('Default app icon'));
+            applyIconPreview(iconImage, newResult, this._settings);
+            resetButton.visible = false;
+        });
+
+        const iconRow = createActionRow({
+            title: _('Custom Icon'),
+            prefixWidget: iconImage,
+            suffixWidgets: [resetButton],
+            suffixIcon: NEXT_ICON_NAME,
+            activatable: true,
+        });
+
+        setIconSubtitle(iconRow, this._data.custom_icon, _('Default app icon'));
+
+        iconRow.connect('activated', () => {
+            const currentIcon = this._data.custom_icon || this._data.detected_icon || null;
+
+            new IconEmojiPicker({
+                settings: this._settings,
+                current: currentIcon,
+                onSelect: selectedIcon => {
+                    this._updateValue('custom_icon', selectedIcon);
+                    const newResult = this._resolveIcon();
+                    setIconSubtitle(iconRow, selectedIcon);
+                    applyIconPreview(iconImage, newResult, this._settings);
+                    resetButton.visible = true;
+                },
+            }).popupFor(iconRow);
+        });
+        return iconRow;
+    }
+
+    _buildStatusBadgeRow() {
+        const openDialog = () => new StatusBadgeDialog(this._settings, this._appId, this._data)
+            .present(this.get_root());
+        return createActionRow({
+            title: _('Status Icons and Badges'),
+            subtitle: _('Unread badge and per-state icons.'),
+            suffixIcon: NEXT_ICON_NAME,
+            onActivate: openDialog,
+            badge: {text: _('Experimental')},
+        });
+    }
+
+    _addDangerGroup(page) {
         const dangerGroup = new Adw.PreferencesGroup({title: _('Danger Zone')});
         page.add(dangerGroup);
         if (this._data.is_foreign)
@@ -180,37 +341,6 @@ export default class AppDialog extends Adw.Dialog {
         }));
     }
 
-    // Goes through setAppPriorities like drag and scroll do. Writing a raw
-    // priority instead would take PRIORITY_STEP clicks to move one slot.
-    _buildPositionRow() {
-        this._positionRow = new Adw.SpinRow({
-            title: _('Position'),
-            adjustment: new Gtk.Adjustment({lower: 1, upper: 1, step_increment: 1, value: 1}),
-        });
-
-        this._positionRow.connect('notify::value', async () => {
-            if (this._suppressPositionNotify)
-                return;
-            const order = await this._positionOrder();
-            const from = order.indexOf(this._appId);
-            const to = this._positionRow.value - 1;
-            if (from === -1 || from === to)
-                return;
-            order.splice(to, 0, ...order.splice(from, 1));
-            setAppPriorities(this._settings, order);
-        });
-
-        this._syncPositionRow();
-
-        return this._positionRow;
-    }
-
-    // The config also holds closed and uninstalled apps, so its numbers drift
-    // from what the panel shows.
-    async _positionOrder() {
-        return await readVisibleOrder() ?? orderedAppIds(this._settings);
-    }
-
     // Forgetting a foreign item that still stands would take a name and a slot
     // from its owner, and a hidden one is only put away with the owner still
     // there. Once the owner is gone for good nobody else can clear the entry.
@@ -218,92 +348,6 @@ export default class AppDialog extends Adw.Dialog {
         group.visible = false;
         const order = await this._positionOrder();
         group.visible = !this._data.is_hidden && !order.includes(this._appId);
-    }
-
-    async _syncPositionRow() {
-        const order = await this._positionOrder();
-        const index = order.indexOf(this._appId);
-        const isAbsent = index === -1;
-
-        this._positionRow.sensitive = !isAbsent && order.length > 1;
-        if (this._data.is_hidden) {
-            this._positionRow.subtitle = _('Hidden icons have no position.');
-        } else if (isAbsent) {
-            this._positionRow.subtitle = '';
-        } else {
-            // Numbered placeholders so a translation can put the count first.
-            // GJS ships no String.prototype.format, hence the plain replace.
-            this._positionRow.subtitle = _('Position %1 of %2, counted from the left.')
-                .replace('%1', String(index + 1))
-                .replace('%2', String(order.length));
-        }
-
-        this._suppressPositionNotify = true;
-        this._positionRow.adjustment.set_upper(Math.max(order.length, 1));
-        this._positionRow.adjustment.set_value(isAbsent ? 1 : index + 1);
-        this._suppressPositionNotify = false;
-    }
-
-    _buildCustomIconRow() {
-        const iconResult = this._resolveIcon();
-
-        const iconImage = createImage({pixel_size: ICON_PREVIEW_SIZE_PX});
-        applyIconPreview(iconImage, iconResult, this._settings);
-
-        const resetButton = createIconButton('bti-reset-symbolic', {
-            tooltip: _('Reset icon'),
-            visible: !!this._data.custom_icon,
-        });
-
-        resetButton.connect('clicked', () => {
-            this._updateValue('custom_icon', null);
-            const newResult = this._resolveIcon();
-            iconRow.set_subtitle(_('Default app icon'));
-            applyIconPreview(iconImage, newResult, this._settings);
-            resetButton.visible = false;
-        });
-
-        const iconRow = createActionRow({
-            title: _('Custom Icon'),
-            subtitle: this._data.custom_icon ? this._data.custom_icon : _('Default app icon'),
-            prefixWidget: iconImage,
-            suffixWidgets: [resetButton],
-            suffixIcon: NEXT_ICON_NAME,
-            activatable: true,
-        });
-
-        iconRow.connect('activated', () => {
-            const currentIcon = this._data.custom_icon || this._data.detected_icon || null;
-
-            const picker = new IconPickerDialog(
-                this._settings,
-                null,
-                [],
-                selectedIcon => {
-                    this._updateValue('custom_icon', selectedIcon);
-                    const newResult = this._resolveIcon();
-                    iconRow.set_subtitle(selectedIcon);
-                    applyIconPreview(iconImage, newResult, this._settings);
-                    resetButton.visible = true;
-                },
-                currentIcon
-            );
-
-            picker.present(this);
-        });
-        return iconRow;
-    }
-
-    _buildStatusBadgeRow() {
-        const openDialog = () => new StatusBadgeDialog(this._settings, this._appId, this._data)
-            .present(this.get_root());
-        return createActionRow({
-            title: _('Status Icons and Badges'),
-            subtitle: _('Unread badge and per-state icons.'),
-            suffixIcon: NEXT_ICON_NAME,
-            onActivate: openDialog,
-            badge: {text: _('Experimental')},
-        });
     }
 
     _refreshFromBlob() {
@@ -326,7 +370,7 @@ export default class AppDialog extends Adw.Dialog {
     }
 
     _resolveIcon() {
-        return resolveIcon(this._data, hasThemeIcon, this._cachedExists(), this._themeHit());
+        return resolveAppIcon(this._data, this._shownIcon, this._cachedExists(), this._themeHit());
     }
 
     _cachedExists() {
@@ -337,11 +381,5 @@ export default class AppDialog extends Adw.Dialog {
         const key = themeProbeKey(this._data);
         return key ? this._iconPaths.get(key) : null;
     }
-
-    _flushPendingName() {
-        if (!this._debounceId)
-            return;
-        clearIds(this, removeTimer, '_debounceId');
-        this._updateValue('custom_title', this._nameRow.text);
-    }
 }
+

@@ -17,6 +17,7 @@ const GRID_COLUMNS_MIN = 1;
 const GRID_COLUMNS_MAX = 10;
 
 export const OVERFLOW_STYLE_KEYS = Object.freeze([
+    'overflow-container-blur',
     'overflow-layout-mode',
     'grid-column-limit',
     'overflow-container-padding-top',
@@ -43,7 +44,7 @@ export default class OverflowMenuSubpage extends Adw.NavigationPage {
 
     _init(window, settings) {
         super._init({
-            title: _('Overflow Container'),
+            title: _('Overflow Menu'),
             tag: 'overflow_menu_settings',
         });
 
@@ -63,6 +64,7 @@ export default class OverflowMenuSubpage extends Adw.NavigationPage {
             watch: [...OVERFLOW_STYLE_KEYS, ...TRAY_ICON_STYLE_KEYS],
             render: buildOverflowPreview,
             splitKey: 'overflow-container-color-split',
+            customStyleKey: 'enable-custom-overflow-style',
             stageHeight: PREVIEW_STAGE_HEIGHT_PX.popup,
         }));
 
@@ -90,6 +92,7 @@ export default class OverflowMenuSubpage extends Adw.NavigationPage {
         contentPage.add(createCustomStyleSwitchGroup({
             settings: this._settings,
             key: 'enable-custom-overflow-style',
+            blurKey: 'overflow-container-blur',
         }));
 
         const colorGroup = new Adw.PreferencesGroup({title: _('Colors')});
