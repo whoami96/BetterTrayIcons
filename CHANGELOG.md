@@ -1,5 +1,132 @@
 # Changelog
 
+## [4.0.0](https://github.com/whoami96/BetterTrayIcons/compare/v3.5.1...v4.0.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tray:** the tray detection core was reworked, so apps can be re-identified under new keys and settings synced from an older version may not apply cleanly. To be safe after updating, reset all settings and clear the backups under General so no stale or broken data is carried over.
+* version bump to align with EGO submission
+
+### Features
+
+* **actions:** touch gestures and scroll to cycle icons ([20511cb](https://github.com/whoami96/BetterTrayIcons/commit/20511cbeb06498e54ec7a5f652140ef46e89dfcb)), closes [#30](https://github.com/whoami96/BetterTrayIcons/issues/30)
+* add background blur to icons, toggle and overflow menu ([2d50d9a](https://github.com/whoami96/BetterTrayIcons/commit/2d50d9acb9fe282b206aa49646309756abd2c7fc))
+* align versioning with EGO submission ([bc7ab77](https://github.com/whoami96/BetterTrayIcons/commit/bc7ab775e16be963507d6bc1f00dd749f40bae33))
+* **api:** join Better Panel as a tray applet ([7c52b37](https://github.com/whoami96/BetterTrayIcons/commit/7c52b37475a69f2618110f97fb369c946475804c))
+* **api:** place applets from other extensions in the tray ([0a1d2bd](https://github.com/whoami96/BetterTrayIcons/commit/0a1d2bdf8b6bc21cfc4556c35f9da6b01136fb34))
+* **appearance:** separate light and dark color sets per surface ([5a20448](https://github.com/whoami96/BetterTrayIcons/commit/5a20448d502c3b60d4c650a13f16bb16cb04256a)), closes [#56](https://github.com/whoami96/BetterTrayIcons/issues/56)
+* bundle the extension's own icon theme ([2aba319](https://github.com/whoami96/BetterTrayIcons/commit/2aba319dfe1ff58a73db73bf6a8ea01f7d782396))
+* **dnd:** rework icon reordering around live slides ([580a499](https://github.com/whoami96/BetterTrayIcons/commit/580a499a48cf145df5b08bbeb43a9916c05b9bec))
+* drawer and quick settings modes, the tray on every monitor and per-app click actions ([087b89a](https://github.com/whoami96/BetterTrayIcons/commit/087b89aa22225428a5a5adbb05b8d545a3482599)), closes [#96](https://github.com/whoami96/BetterTrayIcons/issues/96) [#98](https://github.com/whoami96/BetterTrayIcons/issues/98)
+* **i18n:** add Russian translation ([2ad6f33](https://github.com/whoami96/BetterTrayIcons/commit/2ad6f33b092e12c23f1ae9565b439f1ef6dcd430))
+* Initial release of Better Tray Icons ([1ac8ebe](https://github.com/whoami96/BetterTrayIcons/commit/1ac8ebebc645b3080c53ae67bd54cf3eb3f8e062))
+* pass scroll to the app, fix menu contrast, flyout and toggle ([fe7febe](https://github.com/whoami96/BetterTrayIcons/commit/fe7febe88d4f024fb23db6c8ac1e357b45dc0f2a)), closes [#71](https://github.com/whoami96/BetterTrayIcons/issues/71)
+* **popup:** keep the overflow menu open through context menus ([22f60e6](https://github.com/whoami96/BetterTrayIcons/commit/22f60e63c693b3347087bdf87352ebfaa7ea6163)), closes [#49](https://github.com/whoami96/BetterTrayIcons/issues/49)
+* **prefs:** add a global minimize when in front switch with row help ([9b27e81](https://github.com/whoami96/BetterTrayIcons/commit/9b27e817a53a1ba80d8c6affa6e726fb4fa1b271))
+* **prefs:** add title bar actions and a badge visibility toggle ([9e940da](https://github.com/whoami96/BetterTrayIcons/commit/9e940dad4aabb5b876825eaa344bbbbee394c1f6))
+* **prefs:** copy button on code blocks, a plainer icon picker and shared helpers for the website ([4481523](https://github.com/whoami96/BetterTrayIcons/commit/44815239dbdcb06f514712ecc8c034ae17cdfb7e))
+* **prefs:** credits viewer, donation links and the about footer ([64ecd34](https://github.com/whoami96/BetterTrayIcons/commit/64ecd349d9f7849714a8cb28c5a06fd5c717abbe))
+* **prefs:** dialog, row and page polish ([9423ad4](https://github.com/whoami96/BetterTrayIcons/commit/9423ad42a5fcf4339745fbb3ed21ffaf1a0b2e72))
+* **prefs:** filter, search and quick actions on the applications page ([4ae6c0c](https://github.com/whoami96/BetterTrayIcons/commit/4ae6c0c334d4c50bb0676be0c598eb46f15339af))
+* **prefs:** placement cards and a preview stage with measuring guides ([b1f0257](https://github.com/whoami96/BetterTrayIcons/commit/b1f02577753e1711add7b6365a97fc60e7594348))
+* **prefs:** rebuild the icon picker as a dropdown with emoji and icon packs ([3339597](https://github.com/whoami96/BetterTrayIcons/commit/33395972b5344b10175d458079133fdb1d57e7ce))
+* **prefs:** rework the cloud sync dialog ([37088ca](https://github.com/whoami96/BetterTrayIcons/commit/37088ca0b491671a1c8afe8bf41e87777e66e949))
+* **prefs:** scroll the contributors sideways in one row ([63d98d9](https://github.com/whoami96/BetterTrayIcons/commit/63d98d91bc1a640b1576dca697f66ff0471cd7a9))
+* **prefs:** sidebar redesign, live previews and cross-device merge ([470a996](https://github.com/whoami96/BetterTrayIcons/commit/470a9965f79f14777b11f5660f14a8ea7fe73764))
+* **proxy:** desktop actions, status line and quit for background apps ([a7c817f](https://github.com/whoami96/BetterTrayIcons/commit/a7c817f9f7828152b03fb48878ec6d9d7c4a9645)), closes [#55](https://github.com/whoami96/BetterTrayIcons/issues/55)
+* **shell:** hide background apps and proxy icons for windowless apps ([fff0954](https://github.com/whoami96/BetterTrayIcons/commit/fff09545ad6d0b307435ec9c0336046f297a0469))
+* **style:** border color and width for icons, toggle and popup ([b814f20](https://github.com/whoami96/BetterTrayIcons/commit/b814f201b4972d5d6bfec6fa0234609f77ad597a))
+* support gnome shell 51 ([0a93036](https://github.com/whoami96/BetterTrayIcons/commit/0a930362e50b7085cd23f99aa80f4a5fb3a582f0))
+* **toggle:** rotate or swap the icon while the popup is open ([8a532df](https://github.com/whoami96/BetterTrayIcons/commit/8a532df4249b06c28aadd71cdfdfa6e0ca07de4f)), closes [#54](https://github.com/whoami96/BetterTrayIcons/issues/54)
+* **tray:** add hover tooltips to xembed icons ([7f67c93](https://github.com/whoami96/BetterTrayIcons/commit/7f67c9327a97ac24f4909335b50df85c6dadda91))
+* **tray:** let a setting choose which menu opens on toggle hover ([6602996](https://github.com/whoami96/BetterTrayIcons/commit/6602996d66730c5048c3d163263fe64364273746)), closes [#22](https://github.com/whoami96/BetterTrayIcons/issues/22)
+* **tray:** let selected colors follow the system accent ([558a8e8](https://github.com/whoami96/BetterTrayIcons/commit/558a8e8414c16a96d53df1beb949f502b9eca7e6)), closes [#20](https://github.com/whoami96/BetterTrayIcons/issues/20)
+* **tray:** per-item identity, packaging split and status badges ([1e52b35](https://github.com/whoami96/BetterTrayIcons/commit/1e52b359ac9a25ee93f17c3baed9bd65879bc7d3))
+
+
+### Bug Fixes
+
+* **about:** correct the show-more card icon name ([3e4bcfb](https://github.com/whoami96/BetterTrayIcons/commit/3e4bcfb8781de5aff1e970af03cc78bc17980adf))
+* **about:** lowercase the contributor opt-out entry ([3f7d41a](https://github.com/whoami96/BetterTrayIcons/commit/3f7d41acde0e75be42f3af38c9b43189211b63cc))
+* bound icon file reads and menu image sizes ([8d3736b](https://github.com/whoami96/BetterTrayIcons/commit/8d3736b724409a8a53835dfdf5337018fda8d3ab))
+* **build:** ship the compiled gsettings schema in the release asset ([5263b55](https://github.com/whoami96/BetterTrayIcons/commit/5263b55db867f618be4f9217e80771d099341e39)), closes [#12](https://github.com/whoami96/BetterTrayIcons/issues/12)
+* clean up after a failed enable instead of only logging it ([f3239e3](https://github.com/whoami96/BetterTrayIcons/commit/f3239e3b4bddb687fe5b5a8d6ba222dea0f148e7))
+* convert /proc and Steam manifest reads to async file IO ([a33f316](https://github.com/whoami96/BetterTrayIcons/commit/a33f31650b1f20623cb9c6ff522569fca5b028f4))
+* **icons:** honour fill and stroke from inline svg styles when tinting ([3db3fbc](https://github.com/whoami96/BetterTrayIcons/commit/3db3fbce1d28020dfafcc5cec88fc63d142e55dc)), closes [#92](https://github.com/whoami96/BetterTrayIcons/issues/92)
+* **icons:** size custom svg overrides by the real raster scale ([d79b280](https://github.com/whoami96/BetterTrayIcons/commit/d79b2808810ba2368dae33b77fa59dcadc2af936)), closes [#87](https://github.com/whoami96/BetterTrayIcons/issues/87)
+* import string-list settings and survive a quick disable and enable ([3139c15](https://github.com/whoami96/BetterTrayIcons/commit/3139c1509504ede98610e1d5409771de3fe8e896))
+* keep overflow popup open when tray icon updates ([8a62426](https://github.com/whoami96/BetterTrayIcons/commit/8a6242603c8d56f32dbfa1a4642091178e87acdc))
+* make tray menus discoverable by Blur My Shell ([#78](https://github.com/whoami96/BetterTrayIcons/issues/78)) ([49a113b](https://github.com/whoami96/BetterTrayIcons/commit/49a113b5dd11f76497565a5a1822a4c6bf09256b))
+* **menu:** close the gap over a bottom bar ([0b0495f](https://github.com/whoami96/BetterTrayIcons/commit/0b0495f264e58c2e815b9cc397b8796cc74bbe0f))
+* **menu:** open dbusmenu submenus at any depth ([381dba2](https://github.com/whoami96/BetterTrayIcons/commit/381dba24eb23acd5bed736a9784ed68e1d6182e7))
+* **menu:** pop a submenu out beside its item when it has no room ([e9ff943](https://github.com/whoami96/BetterTrayIcons/commit/e9ff943b76dc1fd3fbe8668b3b6073ea62ecc40c))
+* **menu:** render icon-data, lazy submenus and the collapse look ([696d415](https://github.com/whoami96/BetterTrayIcons/commit/696d415dca38cc1003a2295f41e6c0d3c27de6cf))
+* **prefs:** correct button alignment styling ([d18d01f](https://github.com/whoami96/BetterTrayIcons/commit/d18d01f8e4641135f745c2755d2fcc5fd0146acf))
+* **prefs:** let tab reach the title bar buttons ([3ddd00a](https://github.com/whoami96/BetterTrayIcons/commit/3ddd00a92114aa743a7e2584c6be34952b3d24e9))
+* **prefs:** ship the svg assets the about page renders ([11f89d1](https://github.com/whoami96/BetterTrayIcons/commit/11f89d1273909d17192357f57fab181a619b5f4d))
+* **prefs:** show contributors missing from github's cached list ([361153b](https://github.com/whoami96/BetterTrayIcons/commit/361153b75bf9576c2b9798e122fcfee4f5f8af29))
+* **prefs:** show the close button when window buttons sit on the left ([#79](https://github.com/whoami96/BetterTrayIcons/issues/79)) ([7d9a850](https://github.com/whoami96/BetterTrayIcons/commit/7d9a8509803c6827c7bb44ce0be77c917476e29e)), closes [#77](https://github.com/whoami96/BetterTrayIcons/issues/77)
+* **prefs:** step the icon size by one pixel and cap it at 40 ([a3f0ef0](https://github.com/whoami96/BetterTrayIcons/commit/a3f0ef0886e7196c74e4d0abd8d9d66398896260))
+* **prefs:** stop scoped handlers from leaking their widget ([bb3d17f](https://github.com/whoami96/BetterTrayIcons/commit/bb3d17f022ca256e081b5834ad5f698c5b7b76f5))
+* prevent signal leak and use async file IO ([4a9fcf6](https://github.com/whoami96/BetterTrayIcons/commit/4a9fcf6a58349846655c58712ffca4c2bf921689))
+* read interface xml asynchronously and drop the legacy migrations ([c4b0667](https://github.com/whoami96/BetterTrayIcons/commit/c4b06679d205b65550533c242f2c4bdf8d228cc1))
+* **schema:** reject out-of-range values instead of storing them ([ed36840](https://github.com/whoami96/BetterTrayIcons/commit/ed368406ac797aba2699cb0ab3c3af1a742b4ce6))
+* **sni:** allow replacing temporary watcher, emit host signal and parse composite service path ([1d6c24f](https://github.com/whoami96/BetterTrayIcons/commit/1d6c24f775b899577b7da8e0f9ffe71103ff3c86))
+* **sni:** close a kept popup before activate so the app sees focus ([82495f1](https://github.com/whoami96/BetterTrayIcons/commit/82495f1cad65e5ac549eafd001c227061410472f))
+* **sni:** dedupe rescanned items by owner and drop them on name release ([0f0b435](https://github.com/whoami96/BetterTrayIcons/commit/0f0b435177253b0702dee70c3b088e836aaff33e))
+* **sni:** hand the app an activation token before activate ([504e0cf](https://github.com/whoami96/BetterTrayIcons/commit/504e0cf9730bf2eb469b07f9c0281a5bcb9ac1cd))
+* **sni:** key items by unique bus owner to avoid duplicate icons ([#90](https://github.com/whoami96/BetterTrayIcons/issues/90)) ([d25c28c](https://github.com/whoami96/BetterTrayIcons/commit/d25c28cf2673a9afe4ee330d45beb26fa741096c))
+* **sni:** let a focused app toggle its window on activate ([71b8635](https://github.com/whoami96/BetterTrayIcons/commit/71b8635603982660fab4c2208504c4ce50c3d039)), closes [#84](https://github.com/whoami96/BetterTrayIcons/issues/84)
+* **sni:** raise the app's window on activate, across workspaces ([2be7ae6](https://github.com/whoami96/BetterTrayIcons/commit/2be7ae6d2590a6e34a98207879ae37c2b2325763))
+* **style:** drop inline styles from tray icons in stock mode ([#61](https://github.com/whoami96/BetterTrayIcons/issues/61)) ([38a909b](https://github.com/whoami96/BetterTrayIcons/commit/38a909b1928dacabf9fab014deaecd60da2a9363))
+* **style:** keep stock icons styled and readable inside the popup ([5570c59](https://github.com/whoami96/BetterTrayIcons/commit/5570c594c4ec4f8cf38d69aa15f75cebe673409a))
+* **sync:** import only matching keys and keep unknown ones on push ([dfcf001](https://github.com/whoami96/BetterTrayIcons/commit/dfcf00140feaacae5c6204b7d1709b64ade58442))
+* **sync:** keep the settings import off the shell main loop ([1a980b5](https://github.com/whoami96/BetterTrayIcons/commit/1a980b58297cc783c0d6fa3d2a20b9243d3ccfd3))
+* **toggle:** keep the open menu first for the hover switch ([a1076e6](https://github.com/whoami96/BetterTrayIcons/commit/a1076e6cb8301cece97732c393dee070dee100fe))
+* tray icon size zero, scaled embeds and menu teardown on gnome 51 ([904c3a2](https://github.com/whoami96/BetterTrayIcons/commit/904c3a255bfdf8758f18df07ddcb0d216c693704))
+* **tray:** cancel in-flight SNI registrations when their owner dies ([b553039](https://github.com/whoami96/BetterTrayIcons/commit/b553039376d82aaeb900b3d789abf864bb4bef86)), closes [#14](https://github.com/whoami96/BetterTrayIcons/issues/14)
+* **tray:** expand context menu submenus on click ([79b2d63](https://github.com/whoami96/BetterTrayIcons/commit/79b2d6374a58b4356a9f5102408241e544fb7d6d)), closes [#11](https://github.com/whoami96/BetterTrayIcons/issues/11)
+* **tray:** identify Wine tray icons by launcher and prefix ([8ba83ae](https://github.com/whoami96/BetterTrayIcons/commit/8ba83ae3d82a542ac7be917365190abeecbf5301))
+* **tray:** keep auto-hide panels visible while a context menu is open ([0b43f1d](https://github.com/whoami96/BetterTrayIcons/commit/0b43f1dba7fd2b04000f513a5184bc5be2527419))
+* **tray:** keep the context menu alive when the panel auto-hides ([62ab18a](https://github.com/whoami96/BetterTrayIcons/commit/62ab18af2665e79d149743b2a1a04d75a1fba2b3)), closes [#33](https://github.com/whoami96/BetterTrayIcons/issues/33) [#34](https://github.com/whoami96/BetterTrayIcons/issues/34)
+* **tray:** multi-color status icons and the unread badge ([4046722](https://github.com/whoami96/BetterTrayIcons/commit/404672286801f3377f8c28c63026c779ee608a46)), closes [#33](https://github.com/whoami96/BetterTrayIcons/issues/33) [#35](https://github.com/whoami96/BetterTrayIcons/issues/35)
+* **tray:** parse the xembed background color with cogl ([c0fd41c](https://github.com/whoami96/BetterTrayIcons/commit/c0fd41c881fdd028b9caf7ac07a2d20fe5fd36e5))
+* **ui:** keep blur my shell off the custom styled popup ([a66031d](https://github.com/whoami96/BetterTrayIcons/commit/a66031dc6760a5069c2ec64f1a4d6664a3e9ece7))
+* **ui:** keep inline icon clicks from opening the overflow popup ([52b25ff](https://github.com/whoami96/BetterTrayIcons/commit/52b25ffc2034ce92b1da78295990e026736667e8)), closes [#89](https://github.com/whoami96/BetterTrayIcons/issues/89)
+
+
+### Performance Improvements
+
+* generate the dbusmenu proxy class once per process ([9afa291](https://github.com/whoami96/BetterTrayIcons/commit/9afa2914e8e45f4be170c29e1578a5a68c11b221))
+* **prefs:** batch factory reset and import into one transaction ([60bfb59](https://github.com/whoami96/BetterTrayIcons/commit/60bfb5922631c49c19b15cf2092813853d84b090))
+* **prefs:** cache the system icon list across picker opens ([15686f0](https://github.com/whoami96/BetterTrayIcons/commit/15686f0def91c4a60fcc4acf7274c59661b6d859))
+* **prefs:** coalesce applications page rebuilds ([6c8fb3d](https://github.com/whoami96/BetterTrayIcons/commit/6c8fb3d6bfc6a223a9e54de222f1b412376249a9))
+* **prefs:** defer about page artwork until the page is shown ([16fca87](https://github.com/whoami96/BetterTrayIcons/commit/16fca8793b3f7a40e8dcc8d87b22b8e7d4e71267))
+* **prefs:** stop the sync dialog from stat-storming on keystrokes ([1177d86](https://github.com/whoami96/BetterTrayIcons/commit/1177d8653125d4832329330b5376d27ecd79837f))
+* **sync:** make backup rotation and writes fully async ([1a288d8](https://github.com/whoami96/BetterTrayIcons/commit/1a288d87c154f8fa58884a55671cf30fb91194bc))
+* **tray:** skip icon refetches for unrelated settings changes ([3286e25](https://github.com/whoami96/BetterTrayIcons/commit/3286e253c4265e0386d0976b26272dc3545cf46c))
+* **tray:** trim d-bus traffic per icon update ([af8ae48](https://github.com/whoami96/BetterTrayIcons/commit/af8ae488569caae6000d4042ca719b91ef425d8b))
+* **tray:** write reorders as a single app-configs update ([991ffce](https://github.com/whoami96/BetterTrayIcons/commit/991ffcef1279dfe86369bab6b667d8630bb0accf))
+
+
+### Translations
+
+* add Italian translation ([#41](https://github.com/whoami96/BetterTrayIcons/issues/41)) ([1b32db6](https://github.com/whoami96/BetterTrayIcons/commit/1b32db64b3cbd587d446f234e111c9b686140443))
+* Add Simplified Chinese translation ([#59](https://github.com/whoami96/BetterTrayIcons/issues/59)) ([3ff3e33](https://github.com/whoami96/BetterTrayIcons/commit/3ff3e33afa7d0a55f235a01467a5e99201117d45)), closes [#58](https://github.com/whoami96/BetterTrayIcons/issues/58)
+* **de:** translate the toggle icon, color set and proxy strings ([2742168](https://github.com/whoami96/BetterTrayIcons/commit/2742168e7838fddfcd854e23262e55acd284a7c5))
+* German translation for the new strings ([c1b37b6](https://github.com/whoami96/BetterTrayIcons/commit/c1b37b65a47da2479905d579af155f97edb8414c))
+* Small Russian translation update ([184ea81](https://github.com/whoami96/BetterTrayIcons/commit/184ea818a10dd7958c0619586eabe436e0ea81dc))
+* translate the new strings and drop the unused ones ([5c054f2](https://github.com/whoami96/BetterTrayIcons/commit/5c054f235aa52148c43fbfd7812d80e5d7b50e5d))
+* update Italian translation ([#82](https://github.com/whoami96/BetterTrayIcons/issues/82)) ([07889d6](https://github.com/whoami96/BetterTrayIcons/commit/07889d61b40408cc89426905b5eff2064fa24306))
+* Update Russian translation ([#100](https://github.com/whoami96/BetterTrayIcons/issues/100)) ([a2df150](https://github.com/whoami96/BetterTrayIcons/commit/a2df150c5fa36afca901075ac158a723298e7cb3))
+* Update Russian translation ([#28](https://github.com/whoami96/BetterTrayIcons/issues/28)) ([374be54](https://github.com/whoami96/BetterTrayIcons/commit/374be54141052fb94cc56345051b7dbaec32faf4))
+* Update Russian translation ([#39](https://github.com/whoami96/BetterTrayIcons/issues/39)) ([66a2707](https://github.com/whoami96/BetterTrayIcons/commit/66a2707c582422478a96dabeda05720e9fe09c4e))
+* Update Russian translation ([#46](https://github.com/whoami96/BetterTrayIcons/issues/46)) ([a93cb95](https://github.com/whoami96/BetterTrayIcons/commit/a93cb95f280f1d594128a70a5e866913e838f017))
+* Update Russian translation ([#66](https://github.com/whoami96/BetterTrayIcons/issues/66)) ([2c92869](https://github.com/whoami96/BetterTrayIcons/commit/2c92869b93af646fe3fa45178690597f64ca9906))
+* Update Russian translation ([#94](https://github.com/whoami96/BetterTrayIcons/issues/94)) ([f7dd025](https://github.com/whoami96/BetterTrayIcons/commit/f7dd025494f007f213ab1191ebd9ee995abba1bd))
+* Uptade Russian translation ([#52](https://github.com/whoami96/BetterTrayIcons/issues/52)) ([333236d](https://github.com/whoami96/BetterTrayIcons/commit/333236d863f30c9a1ff9abbcba18bafe695f4098))
+
 ## [3.5.1](https://github.com/nexaknight/BetterTrayIcons/compare/v3.5.0...v3.5.1) (2026-11-18)
 
 
